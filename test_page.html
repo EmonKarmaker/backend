@@ -140,33 +140,48 @@
             border-radius: 10px;
             border: 2px solid #2196f3;
             margin-bottom: 25px;
-            display: none;
-        }
-        
-        .expected-text.show {
-            display: block;
         }
         
         .expected-text h4 {
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             color: #1976d2;
         }
         
         .expected-text .arabic {
-            font-size: 28px;
+            font-size: 32px;
             font-family: "Traditional Arabic", "Arabic Typesetting", serif;
             text-align: center;
-            padding: 15px;
+            padding: 20px;
             background: white;
             border-radius: 8px;
             margin: 10px 0;
             direction: rtl;
+            line-height: 1.8;
+            min-height: 80px;
         }
         
         .expected-text .words {
             font-size: 14px;
             color: #555;
             text-align: center;
+            margin-top: 10px;
+        }
+        
+        .expected-text .translation {
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+            font-style: italic;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(255,255,255,0.5);
+            border-radius: 5px;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #666;
+            font-style: italic;
         }
         
         .controls {
@@ -405,7 +420,7 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label for="surahSelect">Surah (Chapter)</label>
-                        <select id="surahSelect" onchange="updateSelection()">
+                        <select id="surahSelect" onchange="loadAyahText()">
                             <option value="1">1 - Al-Fatihah (الفاتحة)</option>
                             <option value="2">2 - Al-Baqarah (البقرة)</option>
                             <option value="3">3 - Ali 'Imran (آل عمران)</option>
@@ -417,7 +432,7 @@
                     
                     <div class="form-group">
                         <label for="ayahSelect">Ayah (Verse)</label>
-                        <select id="ayahSelect" onchange="updateSelection()">
+                        <select id="ayahSelect" onchange="loadAyahText()">
                             <option value="1">1</option>
                             <option value="2">2</option>
                             <option value="3">3</option>
@@ -433,8 +448,9 @@
             <!-- Expected Text Display -->
             <div id="expectedText" class="expected-text">
                 <h4>Expected Text:</h4>
-                <div class="arabic" id="arabicText">بِسۡمِ ٱللَّهِ ٱلرَّحۡمَـٰنِ ٱلرَّحِيمِ</div>
-                <div class="words" id="wordsList">Words will appear after connecting...</div>
+                <div class="arabic loading" id="arabicText">Select a verse above to load text...</div>
+                <div class="words" id="wordsList"></div>
+                <div class="translation" id="translation"></div>
             </div>
             
             <!-- Control Buttons -->
@@ -493,10 +509,16 @@
         let source = null;
         let isRecording = false;
         let expectedWords = [];
+        let expectedWordsHarakat = [];
         let results = [];
         
         const surahSelect = document.getElementById('surahSelect');
         const ayahSelect = document.getElementById('ayahSelect');
+
+        // Load ayah text when page loads
+        window.onload = function() {
+            loadAyahText();
+        };
 
         function log(message, type = 'info') {
             const logDiv = document.getElementById('log');
@@ -514,9 +536,46 @@
             statusDiv.className = `status ${className}`;
         }
 
-        function updateSelection() {
-            // Just update the display, actual connection happens when user clicks connect
-            log(`Selected: Surah ${surahSelect.value}, Ayah ${ayahSelect.value}`, 'info');
+        async function loadAyahText() {
+            const surah = surahSelect.value;
+            const ayah = ayahSelect.value;
+            
+            log(`Loading text for Surah ${surah}, Ayah ${ayah}...`, 'info');
+            
+            // Show loading
+            document.getElementById('arabicText').className = 'arabic loading';
+            document.getElementById('arabicText').textContent = 'Loading...';
+            document.getElementById('wordsList').textContent = '';
+            document.getElementById('translation').textContent = '';
+            
+            try {
+                const response = await fetch(`http://localhost:8000/api/surah/${surah}/ayah/${ayah}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Display Arabic text with harakat
+                document.getElementById('arabicText').className = 'arabic';
+                document.getElementById('arabicText').textContent = data.text_with_harakat;
+                
+                // Display word count
+                document.getElementById('wordsList').textContent = 
+                    `${data.total_words} words`;
+                
+                // Display translation
+                if (data.translation) {
+                    document.getElementById('translation').textContent = data.translation;
+                }
+                
+                log(`✓ Loaded: ${data.total_words} words`, 'receive');
+                
+            } catch (error) {
+                log(`❌ Failed to load text: ${error.message}`, 'error');
+                document.getElementById('arabicText').className = 'arabic';
+                document.getElementById('arabicText').textContent = 'Error loading text. Make sure backend is running!';
+            }
         }
 
         function connect() {
@@ -552,17 +611,13 @@
 
                 if (data.type === 'session_started') {
                     expectedWords = data.expected_words || [];
-                    log(`📝 Expected words (${expectedWords.length}): ${expectedWords.join(' ')}`, 'receive');
+                    expectedWordsHarakat = data.expected_words_with_harakat || expectedWords;
                     
-                    // Display expected text
-                    document.getElementById('expectedText').classList.add('show');
+                    log(`📝 Expected words (${expectedWords.length}): ${expectedWordsHarakat.join(' ')}`, 'receive');
+                    
+                    // Update display
                     document.getElementById('wordsList').textContent = 
-                        `${expectedWords.length} words: ${expectedWords.join(' • ')}`;
-                    
-                    // Update arabic text if available
-                    if (expectedWords.length > 0) {
-                        document.getElementById('arabicText').textContent = expectedWords.join(' ');
-                    }
+                        `${expectedWords.length} words: ${expectedWordsHarakat.join(' • ')}`;
                 }
                 else if (data.type === 'word_result') {
                     displayResult(data);
@@ -626,20 +681,17 @@
                 document.getElementById('stopBtn').disabled = false;
                 document.getElementById('connectBtn').disabled = true;
 
-                // Create audio context
                 audioContext = new (window.AudioContext || window.webkitAudioContext)({ 
                     sampleRate: 16000 
                 });
                 
                 source = audioContext.createMediaStreamSource(mediaStream);
-                
-                // Use ScriptProcessor for audio chunks
                 const bufferSize = 2048;
                 processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
 
                 let chunkCount = 0;
                 let buffer = [];
-                const targetChunkSize = 480; // 30ms at 16kHz
+                const targetChunkSize = 480;
 
                 processor.onaudioprocess = function(e) {
                     if (!websocket || websocket.readyState !== WebSocket.OPEN || !isRecording) {
@@ -648,18 +700,16 @@
 
                     const inputData = e.inputBuffer.getChannelData(0);
                     
-                    // Convert float32 to int16 PCM
                     for (let i = 0; i < inputData.length; i++) {
                         const sample = Math.max(-1, Math.min(1, inputData[i]));
                         buffer.push(Math.floor(sample * 32767));
                         
-                        // When we have 480 samples (30ms), send as chunk
                         if (buffer.length >= targetChunkSize) {
                             const pcmData = new Int16Array(buffer.splice(0, targetChunkSize));
                             websocket.send(pcmData.buffer);
                             chunkCount++;
                             
-                            if (chunkCount % 33 === 0) { // ~1 second
+                            if (chunkCount % 33 === 0) {
                                 log(`Sent ${chunkCount} audio chunks (~${Math.floor(chunkCount/33)} seconds)`, 'send');
                             }
                         }
@@ -673,7 +723,7 @@
 
             } catch (error) {
                 log(`❌ Microphone error: ${error.message}`, 'error');
-                alert('❌ Error: Could not access microphone!\n\nPlease:\n1. Allow microphone permission\n2. Use HTTPS or localhost\n3. Check if another app is using the mic');
+                alert('❌ Error: Could not access microphone!\n\nPlease allow microphone permission.');
                 isRecording = false;
                 document.getElementById('recordBtn').disabled = false;
                 document.getElementById('stopBtn').disabled = true;
@@ -689,7 +739,6 @@
             
             isRecording = false;
             
-            // Stop audio processing
             if (processor) {
                 processor.disconnect();
                 processor = null;
@@ -736,7 +785,7 @@
             };
             
             card.innerHTML = `
-                <div class="word">${data.expected}</div>
+                <div class="word">${data.expected_with_harakat || data.expected}</div>
                 <div class="details">
                     <div class="detail-item">
                         <strong>Expected</strong>
@@ -759,8 +808,6 @@
             `;
             
             resultsDiv.insertBefore(card, resultsDiv.firstChild);
-            
-            // Update statistics
             updateStatistics();
             
             log(`✅ Word evaluated: ${data.expected} - ${data.status} (${data.similarity}%)`, 'receive');
@@ -786,9 +833,7 @@
             log('🗑️ Results cleared', 'info');
         }
 
-        // Initialize
-        log('✅ Page loaded - Ready to connect', 'info');
-        updateSelection();
+        log('✅ Page loaded - Ready to test', 'info');
     </script>
 </body>
 </html>
