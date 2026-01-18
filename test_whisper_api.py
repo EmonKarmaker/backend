@@ -1,4 +1,3 @@
-from openai import OpenAI
 import os
 from dotenv import load_dotenv
 
@@ -13,18 +12,35 @@ if not api_key:
 
 print(f"✓ API Key found: {api_key[:8]}...{api_key[-4:]}")
 
-# Test API connection
+# Test API connection with simple request
 try:
+    import openai
+    
+    # Set API key
+    openai.api_key = api_key
+    
+    print(f"✓ OpenAI library version: {openai.__version__}")
+    
+    # Simple test - list models
+    print("Testing API connection...")
+    
+    # Use new client initialization
+    from openai import OpenAI
     client = OpenAI(api_key=api_key)
     
-    # List available models (test connection)
+    # Test with a simple API call
     models = client.models.list()
     print(f"✅ API connection successful!")
-    print(f"✅ Available models: {len(models.data)} models")
+    print(f"✅ You have access to OpenAI API")
     
-    # Check if whisper-1 is available
-    whisper_available = any(m.id == "whisper-1" for m in models.data)
-    print(f"✅ Whisper model available: {whisper_available}")
+except ImportError:
+    print("❌ OpenAI library not installed!")
+    print("Run: pip install openai --upgrade")
     
 except Exception as e:
     print(f"❌ API connection failed: {e}")
+    print("\nTroubleshooting:")
+    print("1. Check your API key is correct")
+    print("2. Check you have credits in your OpenAI account")
+    print("3. Check your internet connection")
+    print("4. Try: pip install openai --upgrade")

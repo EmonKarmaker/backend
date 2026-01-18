@@ -1,5 +1,5 @@
 import os
-from openai import OpenAI
+import requests
 
 class WhisperTranscriber:
     """
@@ -8,73 +8,85 @@ class WhisperTranscriber:
     
     def __init__(self, api_key=None):
         """
-        Initialize OpenAI client with API key
-        
-        Args:
-            api_key: OpenAI API key (or loaded from environment)
+        Initialize OpenAI Whisper API
         """
         print(f"\n🤖 Initializing OpenAI Whisper API...")
         
-        # Get API key from parameter or environment variable
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         
         if not self.api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment variables!")
+            raise ValueError("❌ OPENAI_API_KEY not found in .env file!")
         
-        # Initialize OpenAI client
-        self.client = OpenAI(api_key=self.api_key)
+        self.api_url = "https://api.openai.com/v1/audio/transcriptions"
         
         print(f"✓ OpenAI Whisper API initialized!")
-        print(f"  API Key: {self.api_key[:8]}...{self.api_key[-4:]}")
+        print(f"  API Key: {self.api_key[:10]}...{self.api_key[-4:]}")
     
     def transcribe(self, audio_path: str) -> dict:
         """
         Transcribe audio file to Arabic text using OpenAI API
-        
-        Args:
-            audio_path: Path to WAV file
-            
-        Returns:
-            {'text': 'بسم', 'language': 'ar'}
         """
-        print(f"\n🎤 Transcribing audio via OpenAI API...")
-        print(f"  File: {audio_path}")
+        print(f"\n🎤 Transcribing via OpenAI API: {audio_path}")
         
         try:
-            # Open audio file
-            with open(audio_path, 'rb') as audio_file:
-                
-                # Call OpenAI Whisper API
-                response = self.client.audio.transcriptions.create(
-                    model="whisper-1",           # OpenAI's Whisper model
-                    file=audio_file,             # Audio file
-                    language="ar",               # Arabic
-                    response_format="json",      # JSON response
-                    temperature=0.0              # Deterministic output
-                )
-            
-            # Extract text from response
-            text = response.text.strip()
-            
-            print(f"✓ Transcription: '{text}'")
-            print(f"  Language: {response.language}")
-            
-            # Calculate cost (approximate)
-            file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
-            estimated_cost = file_size_mb * 0.006  # $0.006 per MB (rough estimate)
-            print(f"  Estimated cost: ${estimated_cost:.6f}")
-            
-            return {
-                'text': text,
-                'language': response.language or 'ar'
+            # Prepare request
+            headers = {
+                "Authorization": f"Bearer {self.api_key}"
             }
             
+            files = {
+                "file": (os.path.basename(audio_path), open(audio_path, "rb"), "audio/wav")
+            }
+            
+            data = {
+                "model": "whisper-1",
+                "language": "ar",
+                "response_format": "json"
+            }
+            
+            # Send to OpenAI
+            response = requests.post(
+                self.api_url,
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=30
+            )
+            
+            # Close file
+            files["file"][1].close()
+            
+            # Check response
+            if response.status_code == 200:
+                result = response.json()
+                text = result.get("text", "").strip()
+                
+                print(f"✓ Transcription: '{text}'")
+                
+                # Calculate cost
+                if "usage" in result:
+                    seconds = result["usage"].get("seconds", 0)
+                    cost = (seconds / 60) * 0.006
+                    print(f"  Duration: {seconds}s | Cost: ${cost:.6f}")
+                
+                return {
+                    "text": text,
+                    "language": "ar"
+                }
+            else:
+                error_msg = response.text
+                print(f"❌ OpenAI API Error {response.status_code}: {error_msg}")
+                raise Exception(f"OpenAI API Error: {error_msg}")
+                
         except Exception as e:
             print(f"❌ Transcription error: {e}")
             raise
         
         finally:
-            # Clean up temporary file
-            if os.path.exists(audio_path):
-                os.remove(audio_path)
-                print(f"  🗑️ Cleaned up temp file")
+            # Clean up temp file
+            try:
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
+                    print(f"  🗑️ Cleaned up temp file")
+            except:
+                pass
